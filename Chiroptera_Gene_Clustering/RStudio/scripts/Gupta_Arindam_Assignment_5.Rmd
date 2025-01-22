@@ -1,0 +1,371 @@
+---
+title: "Assignment 5"
+name: Arindam Gupta
+date: "December 03, 2024"
+output:
+  #Wrap lines in the PDF output from rmarkdown (Cited: ulyngs)
+  pdf_document:
+    includes:
+      in_header: "wrap-code.tex"
+    fig_width: 12
+    fig_height: 8
+
+---
+#-----------Introduction-----------#
+
+Bats (order Chiroptera) are one of the most diverse groups of mammals, with over 1,300 species that have evolved unique traits like echolocation and powered flight. These fascinating adaptations have made bats a popular focus in studies of evolution and genetics (Fenton et al., 2015). Analyzing mitochondrial DNA (mtDNA) has been especially important for understanding the genetic diversity and evolutionary relationships of bats (Zhang et al., 2021). In mitochondrial DNA (mtDNA), the genes Cytochrome c Oxidase Subunit I (COI) and Cytochrome b (cytb) are commonly used in phylogenetic research because they’re highly variable and great at identifying relationships at the species and genus levels (Ratnasingham et al., 2007; Irwin et al., 1991). Analyzing how these genes form clusters can help us understand their evolutionary patterns and how reliable they are as genetic markers (Hebert et al., 2003).
+
+
+Although COI and cytb are both commonly used in evolutionary studies, there’s been limited focus on how their clustering patterns compare within the same taxonomic group (Tobe et al., 2010). The way these genes cluster might show how they’ve been shaped by different evolutionary pressures, which is important for understanding their strengths in genetic and phylogenetic research. But we still don’t have many studies comparing how these genes cluster in diverse groups like bats, so there’s a lot we don’t know about how well they reflect evolutionary relationships.
+
+
+This project aims to compare how COI and cytb sequences cluster within bats. By applying unsupervised clustering methods, we’ll analyze pairwise genetic distances and use metrics like the Dunn index and Silhouette index to evaluate clustering strength. The goal is to uncover any differences in how these genes cluster and interpret what those differences might mean in terms of evolutionary constraints and phylogenetic signals.
+
+#----------Dataset Description----------#
+
+This project uses mitochondrial DNA sequences from two genes, Cytochrome c Oxidase Subunit I (COI) and Cytochrome b (cytb), collected from bats (order Chiroptera). Around 150 sequences per gene (filtered) were retrieved from the NCBI nucleotide database on December 3, 2024, using keyword searches like "Chiroptera" combined with each gene name. The dataset represents various bat species from diverse regions and includes key details such as the genetic sequences, species names, collection locations, and sequence lengths. After quality control steps were done, only high-quality sequences were selected, excluding those with ambiguous bases (too many Ns) or that were too short. The dataset was fine-tuned to reduce variability, making it a good starting point for comparing how these genes cluster and looking into their evolutionary and phylogenetic importance.
+
+
+#---------Code Section 1: Data Acquisition, Exploration, Filtering, and Quality Control---------#
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loadLibraries, warning=FALSE, message=FALSE}
+
+# Load the required libraries
+library(rentrez)       # For getting sequences from NCBI
+library(Biostrings)    # For handling DNA sequences
+library(ggplot2)       # For creating the PCoA visualization
+library(DECIPHER)      # For distance matrix
+library(dendextend)    # For formatting the dengdrograms
+library(cluster)       # For silhouette index
+library(fpc)           # For Dunn index (cluster.stats function)
+library(pheatmap)      # For heatmap 
+```
+
+
+```{r getData}
+
+# This code chunk gets the data from the database writes it out to a file. Although the data itself is not that large,I will still comment it out and provide the data files separately.
+
+
+# create variable to store search term query so subsequent code is easier to read
+#coi_query <- "Chiroptera[Organism] AND COI[Gene]"
+#cytb_query <- "Chiroptera[Organism] AND cytb[Gene]"
+
+# Get the COI sequences
+#coi_search <- entrez_search(db="nucleotide", term=coi_query, retmax=200)
+#coi_sequences <- entrez_fetch(db="nucleotide", id=coi_search$ids, rettype="fasta")
+#writeLines(coi_sequences, "../data/COI_bats.fasta")
+
+# Get the cytb sequences
+#cytb_search <- entrez_search(db="nucleotide", term=cytb_query, retmax=200)
+#cytb_sequences <- entrez_fetch(db="nucleotide", id=cytb_search$ids, rettype="fasta")
+#writeLines(cytb_sequences, "../data/cytb_bats.fasta")
+
+# read and store the sequences into coi and cytb variable
+coi <- readDNAStringSet("../data/COI_bats.fasta", format="fasta")
+cytb <- readDNAStringSet("../data/cytb_bats.fasta", format="fasta")
+
+
+```
+
+
+``` {r SeqLengthAndFilter}
+
+# Store the sequence lengths from the data obtained above
+coi_lengths <- width(coi)
+cytb_lengths <- width(cytb)
+
+# Show the summary for COI lengths
+cat("Summary of COI lengths:\n")
+print(summary(coi_lengths))
+
+# Show the summary for cytb lengths
+cat("Summary of cytb lengths:\n")
+print(summary(cytb_lengths))
+
+
+# Filter sequences: Remove sequences <500 bp or containing ambiguous bases (sequences with Ns)
+filtered_coi <- coi[width(coi) > 500 & !grepl("N", as.character(coi))]
+filtered_cytb <- cytb[width(cytb) > 500 & !grepl("N", as.character(cytb))]
+
+# Show the number of sequences left after filtering
+cat("Retained COI sequences:", length(filtered_coi), "\n")
+cat("Retained cytb sequences:", length(filtered_cytb), "\n")
+
+```
+
+
+```{r findOutliers, warning=FALSE, message=FALSE}
+
+# Calculate the pairwise distance matrix. I tried many functions (like invisible(), and suppressMessages()) to stop the output of time showing up on the knitted pdf, but was not able to figure it out :( 
+coi_dist <- DistanceMatrix(filtered_coi)
+cytb_dist <- DistanceMatrix(filtered_cytb)
+
+# Identify potential outliers. I got help from chatGPT to determine the threshold (mean + 2 * SD ) based on the length of sequences for both COI and cytb
+coi_outliers <- which(rowMeans(as.matrix(coi_dist)) > mean(as.matrix(coi_dist)) + 2 * sd(as.matrix(coi_dist)))
+cytb_outliers <- which(rowMeans(as.matrix(cytb_dist)) > mean(as.matrix(cytb_dist)) + 2 * sd(as.matrix(cytb_dist)))
+
+# Output the COI outliers
+if (length(coi_outliers) > 0) {
+  cat("Potential COI outliers:", names(filtered_coi[coi_outliers]), "\n")
+} else {
+  cat("Potential COI outliers: 0\n")
+}
+
+# Output the cytb outliers
+if (length(cytb_outliers) > 0) {
+  cat("Potential cytb outliers:", names(filtered_cytb[cytb_outliers]), "\n")
+} else {
+  cat("Potential cytb outliers: 0\n")
+}
+
+
+```
+
+```{r createDendrogram, warning=FALSE, message=FALSE}
+
+# Since there are no outliers detected, I created a random subset of sequences 
+# to generate a dendrogram for visualization purposes. This helps simplify the view 
+# while still likely representing the pattern in the entire dataset.
+
+# Randomly sample 50 sequences
+set.seed(123)
+subset_coi <- sample(1:length(filtered_coi), 50)
+subset_cytb <- sample(1:length(filtered_cytb), 50)
+
+# Calculate distance matrix for subsets.
+coi_dist_subset <- DistanceMatrix(filtered_coi[subset_coi])
+cytb_dist_subset <- DistanceMatrix(filtered_cytb[subset_cytb])
+
+# Perform hierarchical clustering and convert to dendrograms
+coi_clust_subset <- hclust(as.dist(coi_dist_subset), method = "average")
+cytb_clust_subset <- hclust(as.dist(cytb_dist_subset), method = "average")
+coi_dend_subset <- as.dendrogram(coi_clust_subset)
+cytb_dend_subset <- as.dendrogram(cytb_clust_subset)
+
+
+
+#I used ChatGPT to help me with the next several lines, to adjust the dendrogram to fit the PDF and make it readable
+# Shorten labels for dendrograms for better readability of the dendrogram
+labels(coi_dend_subset) <- substr(labels(coi_dend_subset), 1, 8)
+labels(cytb_dend_subset) <- substr(labels(cytb_dend_subset), 1, 8)
+
+# Apply hang adjustment to shorten line lengths for COI and cytb dendrograms. 
+coi_dend_subset <- coi_dend_subset %>% set("hang", -0.5)
+cytb_dend_subset <- cytb_dend_subset %>% set("hang", -0.5) 
+
+# Adjust margins for horizontal dendrogram
+par(mar = c(5, 4, 4, 20))
+
+# Plot dendrogram for COI random subset
+plot(
+  coi_dend_subset, 
+  main = "Dendrogram of Random Subset of COI Sequences", 
+  horiz = TRUE,          # Horizontal layout
+  cex = 1.2,             # Increase font size for labels
+  xlab = "Distance"      # X-axis label
+)
+
+# Plot dendrogram for cytb random subset
+plot(
+  cytb_dend_subset, 
+  main = "Dendrogram of Random Subset of cytb Sequences", 
+  horiz = TRUE, 
+  cex = 1.2, 
+  xlab = "Distance"
+)
+
+
+## The above two dendrograms shows how a random subset of 50 COI and cytb sequences clusters  based on their genetic distances. 
+## The clustering shows groups of sequences that are genetically similar, showing a clear picture of the relationships within the data. 
+## I chose a smaller subset from the full dataset to make the visualization more manageable and easier to see. It was also because of the constraints of the page layout of the PDF.  
+## Even still, the patterns observed in the dendrograms of the subset are likely similar to that of the full dataset.
+
+
+# Reset margins to default after plotting
+par(mar = c(5, 4, 4, 2))
+
+```
+
+#--------Main Software Tools Description--------#
+
+For this project, I used the stats (built in R package) and cluster packages in R to compare the clustering patterns of COI and cytb sequences in bats. The stats package handles hierarchical clustering (hclust), which is the main part of our analysis, while the cluster package helps us test the quality of the clusters using metrics like the Dunn index and Silhouette index. These tools were a great choice because they’re reliable, flexible, and work very well within R, making the entire analysis process go smoothly. They’re also well-documented and handle large datasets easily. They do require some fine-tuning of parameters to make sure the results align with biological insights. One of the main challenges was figuring out how to effectively visualize the data in a way that worked well within the PDF format. With so much data to display, I chose to use a random subset where possible. This method made it easier to show patterns that likely represent trends across the entire dataset without cluttering the visuals.
+
+#-------Code Section 2: Main Analysis-------#
+
+```{r clustering}
+
+# Create a function for clustering 
+analyze_clustering <- function(dist_matrix, gene_name) {
+  hclust_result <- hclust(as.dist(dist_matrix), method = "average")
+  silhouette_result <- silhouette(cutree(hclust_result, k = 2), as.dist(dist_matrix))
+  avg_silhouette <- mean(silhouette_result[, 3])
+  dunn_index <- cluster.stats(as.dist(dist_matrix), cutree(hclust_result, k = 2))$dunn
+  
+  cat("Gene:", gene_name, "\n")
+  cat("Average Silhouette Width:", avg_silhouette, "\n")
+  cat("Dunn Index:", dunn_index, "\n\n")
+  
+  return(list(Silhouette = avg_silhouette, Dunn = dunn_index, hclust = hclust_result))
+}
+
+# Use the clustering function for COI and cytb and output the results
+coi_clustering <- analyze_clustering(coi_dist, "COI")
+cytb_clustering <- analyze_clustering(cytb_dist, "cytb")
+
+```
+
+```{r pcoaVisual}
+
+# Create a function to plot PCoA for clustering results
+plot_pcoa <- function(dist_matrix, hclust_result, gene_name) {
+  pcoa_result <- cmdscale(as.dist(dist_matrix), k = 2)
+  pcoa_df <- data.frame(
+    PC1 = pcoa_result[, 1],
+    PC2 = pcoa_result[, 2],
+    Cluster = factor(cutree(hclust_result, k = 2))
+  )
+  
+  ggplot(pcoa_df, aes(x = PC1, y = PC2, color = Cluster)) +
+    geom_point(size = 3) +
+    labs(
+      title = paste("PCoA Plot for", gene_name, "Clustering"),
+      x = "Principal Coordinate 1",
+      y = "Principal Coordinate 2"
+    ) +
+    theme_minimal() +
+    scale_color_manual(values = c("blue", "red"))
+}
+
+# Use the PCoA function to make the PCoA plots
+plot_pcoa(coi_dist, coi_clustering$hclust, "COI")
+
+## This PCoA plot shows how the COI sequences cluster based on their genetic distances, with the data simplified into two main dimensions for easier visualization. 
+## Each dot represents a sequence, and the colors (red and blue) show two distinct clusters. The clear separation between these clusters tells us that there are strong genetic differences within the dataset. 
+## This visualization is helpful for our main question as it gives a quick snapshot of how well the COI sequences naturally group, showing their potential for representing phylogenetic relationships.
+
+plot_pcoa(cytb_dist, cytb_clustering$hclust, "cytb")
+
+## The PCoA plot for cytb clustering shows a more spread-out pattern compared to the COI plot, which had two clear, compact clusters. 
+## Here, the clusters overlap more, and there’s more variation along the axes. This tells us that cytb sequences might not cluster as distinctly as COI, maybe due to greater genetic variability or weaker phylogenetic signals. 
+## These differences could mean that COI might be better at identifying closely related groups, while cytb seems to show a wider range of genetic differences, possibly due to broader evolutionary patterns.
+
+```
+
+
+``` {r heatMapVisuals}
+
+# Create a random sample subset data of 50 and store it as a matrix
+set.seed(123)
+subset_coi <- sample(1:nrow(as.matrix(coi_dist)), 50)
+subset_cytb <- sample(1:nrow(as.matrix(cytb_dist)), 50)
+
+coi_dist_subset <- as.matrix(coi_dist)[subset_coi, subset_coi]
+cytb_dist_subset <- as.matrix(cytb_dist)[subset_cytb, subset_cytb]
+
+#Format the rows and columns to have only the first 8 characters for the labels
+rownames(coi_dist_subset) <- substr(rownames(coi_dist_subset), 1, 8)
+colnames(coi_dist_subset) <- substr(colnames(coi_dist_subset), 1, 8)
+
+rownames(cytb_dist_subset) <- substr(rownames(cytb_dist_subset), 1, 8)
+colnames(cytb_dist_subset) <- substr(colnames(cytb_dist_subset), 1, 8)
+
+# Create a function to make the heatmap
+create_heatmap <- function(dist_subset, title) {
+  pheatmap(
+    dist_subset,
+    cluster_rows = TRUE,          
+    cluster_cols = TRUE,          
+    fontsize_row = 6,  
+    fontsize_col = 6,  
+    main = title,     
+    cellwidth = 10,       
+    cellheight = 10      
+  )
+}
+
+# Use the function to plot the COI heatmap
+create_heatmap(dist_subset = coi_dist_subset, title = "Heatmap of COI Pairwise Distances")
+
+
+## The heatmap for a subset of 50 COI sequences gives a clear picture of how similar or different the sequences are. 
+## The blue cells show sequences that are very similar to each other, while the red cells show pairs that are the most different. 
+## This makes it easy to spot clusters of closely related sequences and areas where sequences stand apart. As mentioned previously, I had to use a smaller subset due to the constraints of the page layout of the PDF. 
+## Still, even working with a smaller subset, we can spot important clustering patterns that likely represent trends in the full dataset. 
+## By visualizing these patterns, the heatmap helps us understand how COI sequences group together and how well they capture evolutionary relationships.
+
+
+# Use the function to plot the cytb heatmap
+create_heatmap(dist_subset = cytb_dist_subset, title = "Heatmap of cytb Pairwise Distances")
+
+
+## The cytb heatmap for a subset of 50 sequences shows a wider spread of distances compared to the COI heatmap. 
+## The COI heatmap showed tightly packed, well-defined clusters, while the cytb heatmap has more spread-out groups with a wider range of similarities. 
+## This tells us that cytb might be better at showing broader evolutionary relationships, whereas COI focuses more on closer-knit patterns. 
+## These differences show how the two genes provide unique perspectives, each showing different aspects of clustering patterns and evolutionary relationships.
+
+
+```
+
+
+``` {r resultSummary}
+
+# Print out the summary of Results
+cat("Summary of Clustering Metrics:\n")
+cat("COI - Silhouette Index:", coi_clustering$Silhouette, "\n")
+cat("COI - Dunn Index:", coi_clustering$Dunn, "\n")
+cat("cytb - Silhouette Index:", cytb_clustering$Silhouette, "\n")
+cat("cytb - Dunn Index:", cytb_clustering$Dunn, "\n")
+
+```
+
+#------Results and Discussion------#
+
+This study was done to explore whether the mitochondrial genes Cytochrome c Oxidase Subunit I (COI) and Cytochrome b (cytb) show different clustering patterns within bats (order Chiroptera). Using unsupervised clustering methods and metrics like the Dunn and Silhouette index, the analysis revealed clear differences between the two genes. COI sequences had stronger clustering patterns, because it resulted in a higher average Silhouette index (0.753) compared to cytb (0.461), which could mean more distinct and grouped clusters. This turned out to be true when looking at the PCoA plots, as the plot for COI clustering showed more distinct and grouped up clusters than cytb. The Dunn index also leaned towards COI (0.953 vs. 0.904), indicating better separation between clusters and showing COI’s value in differentiating phylogenetic relationships. These results align with studies highlighting COI’s effectiveness for species-level distinctions, likely due to its high variability and lower functional constraints (Ratnasingham & Hebert, 2007; Hebert et al., 2003). 
+
+
+However, there were some limitations to this study. The dataset, while consisting of around 150 high-quality sequences per gene, may not fully capture the genetic diversity of bats. Filtering out sequences with ambiguous bases or extreme length variations was necessary for quality control steps but might have introduced biases. Also, hierarchical clustering, though useful for exploration, may oversimplify complex evolutionary relationships shaped by multiple factors. Uneven representation of species in the dataset could also have influenced the results, as some taxa may have been over or under represented.
+
+
+Future studies could build on this work by including larger datasets and testing more advanced clustering methods, such as model-based approaches or machine learning algorithms, to better understand complex relationships. Including data like geographic or ecological information could better help us understand the evolutionary pressures that influence clustering patterns. Also, expanding this analysis to other taxa could show whether the observed trends are unique to bats or  are applicable to other species. While COI appears to be a strong marker for species-level studies, more research is needed to understand its limitations and to explore cytb’s role in higher-level phylogenetic relationships. These expanded studies would help further our understanding of mitochondrial gene evolution and their applications in biodiversity research.
+
+
+#-----Reflection-----#
+
+Working on this assignment has been a valuable learning experience, giving me a much better understanding of unsupervised machine learning and clustering methods in bioinformatics. I developed practical skills in data gathering, quality control, and visualization, and gained confidence in using advanced R packages like DECIPHER and cluster. This project also showed me the importance of carefully choosing the right methods and interpreting results in a way that directly relates back to the main research questions. Aside from the technical side, I also had to manage my time well by doing the complex tasks in smaller, achievable steps. These skills will be invaluable as I continue on with my coursework in BINF*6999, especially when planning larger bioinformatics projects. In the future, I want to continue to learn more about machine learning techniques and focus on doing more detailed analyses. Outside of R, I also want to strengthen my Python skills and explore high-performance computing, which will complement my work in R and increase my ability to do more advanced bioinformatics research.
+
+#----Acknowledgements----#
+
+I would like to express my gratitude to my TA for her tutorial on R Markdown and her consistent support throughout the semester.
+
+I also want to thank my professor for his teachings and guidance in this course.
+
+I would also like to acknowledge the use of ChatGPT in making the dendrograms, heatmaps with appropriate spacing, and PCoA plots, which helped make the visualizations better and made sure they fit well within the knitted PDF.
+
+#---References---#
+
+1. cluster.stats function - RDocumentation. (2024). Rdocumentation.org. https://www.rdocumentation.org/packages/fpc/versions/2.2-13/topics/cluster.stats
+
+2. Fenton, M. B., & Simmons, N. B. (2015). Bats. University of Chicago Press. https://doi.org/10.7208/chicago/9780226065267.001.0001
+
+3. Galili, T. (2024, November 15). Introduction to dendextend. R-Packages. https://cran.r-project.org/web/packages/dendextend/vignettes/dendextend.html
+
+4. Hebert, P. D. N., Cywinska, A., Ball, S. L., & deWaard, J. R. (2003). Biological identifications through DNA barcodes. In Proceedings of the Royal Society of London. Series B: Biological Sciences (Vol. 270, Issue 1512, pp. 313–321). The Royal Society. https://doi.org/10.1098/rspb.2002.2218
+
+5. Irwin, D. M., Kocher, T. D., & Wilson, A. C. (1991). Evolution of the cytochromeb gene of mammals. In Journal of Molecular Evolution (Vol. 32, Issue 2, pp. 128–144). Springer Science and Business Media LLC. https://doi.org/10.1007/bf02515385
+
+6. pheatmap function - RDocumentation. (n.d.). Www.rdocumentation.org. https://www.rdocumentation.org/packages/pheatmap/versions/1.0.12/topics/pheatmap
+
+7. Ratnasingham, S., & Hebert, P. D. N. (2007). BOLD: The Barcode of Life Data System (http://www.barcodinglife.org). In Molecular Ecology Notes (Vol. 7, Issue 3, pp. 355–364). Wiley. https://doi.org/10.1111/j.1471-8286.2007.01678.x
+
+8. silhouette function - RDocumentation. (2023). Rdocumentation.org. https://www.rdocumentation.org/packages/cluster/versions/2.1.6/topics/silhouette
+
+9. Tobe, S. S., Kitchener, A. C., & Linacre, A. M. T. (2010). Reconstructing Mammalian Phylogenies: A Detailed Comparison of the Cytochrome b and Cytochrome Oxidase Subunit I Mitochondrial Genes. In R. DeSalle (Ed.), PLoS ONE (Vol. 5, Issue 11, p. e14156). Public Library of Science (PLoS). https://doi.org/10.1371/journal.pone.0014156
+
+10. ulyngs. (2021, September 24). Markdown to PDF - Wrap text in code chunks and results. https://github.com/rstudio/rmarkdown/issues/646
+
+11. Zhang, L., Sun, K., Csorba, G., Hughes, A. C., Jin, L., Xiao, Y., & Feng, J. (2021). Complete mitochondrial genomes reveal robust phylogenetic signals and evidence of positive selection in horseshoe bats. In BMC Ecology and Evolution (Vol. 21, Issue 1). Springer Science and Business Media LLC. https://doi.org/10.1186/s12862-021-01926-2
