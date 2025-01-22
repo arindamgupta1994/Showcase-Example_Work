@@ -5,7 +5,7 @@ Showcase 1: Transcription Factor Binding Site Analysis in Maize Promoters (Pytho
 
 Description:
 This project identifies transcription factor binding sites (TFBSs) in the promoter regions of co-expressed maize genes. The analysis compares motif counts in selected genes against randomly chosen genes to detect over- or under-represented motifs. It demonstrates Python-based genomic data processing, including extracting upstream non-coding sequences and motif search using pattern-matching algorithms.
-
+Note: Example Fasta files will be reuploaded once storage bandwidth limit is reset in 9 days.
 
 Showcase 2: Sequence Clustering of Chiroptera Genes
 
